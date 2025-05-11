@@ -7,6 +7,7 @@ using language models.
 
 import json
 import logging
+import os
 import re
 from typing import List
 
@@ -49,17 +50,35 @@ class LLMService:
             Do not add any explanations or other text - just the JSON object.
             Select 10-15 artists that match the mood/theme, only from the provided list."""
 
-            response = completion(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {
-                        "role": "user",
-                        "content": f"Context: {artist_context}\n\nCreate a playlist for: {prompt}",
-                    },
-                ],
-                temperature=0.7,
-            )
+            # Check if OpenAI API key has a value and use it, otherwise fall back to Anthropic
+            if ("gpt" in model or "openai" in model) and os.getenv("OPENAI_API_KEY"):
+                response = completion(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {
+                            "role": "user",
+                            "content": f"Context: {artist_context}\n\nCreate a playlist for: {prompt}",
+                        },
+                    ],
+                    temperature=0.7,
+                )
+            else:
+                if "gpt" in model or "openai" in model:
+                    logger.warning("OpenAI API key is empty or not set, falling back to Anthropic")
+                    model = "claude-3-opus-20240229"
+                
+                response = completion(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {
+                            "role": "user",
+                            "content": f"Context: {artist_context}\n\nCreate a playlist for: {prompt}",
+                        },
+                    ],
+                    temperature=0.7,
+                )
 
             content = clean_llm_response(response.choices[0].message.content)
             logger.debug("Raw LLM response: %s", content)
@@ -111,19 +130,39 @@ class LLMService:
             Select between {min_tracks} and {max_tracks} tracks total.
             Do not add any explanations or additional text."""
 
-            response = completion(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {
-                        "role": "user",
-                        "content": f"""Context: {albums_context}\n\n
-                        Create a playlist with {min_tracks}-{max_tracks} tracks for: {prompt}
-                        """,
-                    },
-                ],
-                temperature=0.7,
-            )
+            # Check if OpenAI API key has a value and use it, otherwise fall back to Anthropic
+            if ("gpt" in model or "openai" in model) and os.getenv("OPENAI_API_KEY"):
+                response = completion(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {
+                            "role": "user",
+                            "content": f"""Context: {albums_context}\n\n
+                            Create a playlist with {min_tracks}-{max_tracks} tracks for: {prompt}
+                            """,
+                        },
+                    ],
+                    temperature=0.7,
+                )
+            else:
+                if "gpt" in model or "openai" in model:
+                    logger.warning("OpenAI API key is empty or not set, falling back to Anthropic")
+                    model = "claude-3-opus-20240229"
+                
+                response = completion(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {
+                            "role": "user",
+                            "content": f"""Context: {albums_context}\n\n
+                            Create a playlist with {min_tracks}-{max_tracks} tracks for: {prompt}
+                            """,
+                        },
+                    ],
+                    temperature=0.7,
+                )
 
             content = clean_llm_response(response.choices[0].message.content)
             result = json.loads(content)
@@ -147,14 +186,29 @@ class LLMService:
             Generate a SINGLE catchy and relevant playlist name based on the following prompt. Do not wrap in quotes.
             """
 
-            response = completion(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.7,
-            )
+            # Check if OpenAI API key has a value and use it, otherwise fall back to Anthropic
+            if ("gpt" in model or "openai" in model) and os.getenv("OPENAI_API_KEY"):
+                response = completion(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.7,
+                )
+            else:
+                if "gpt" in model or "openai" in model:
+                    logger.warning("OpenAI API key is empty or not set, falling back to Anthropic")
+                    model = "claude-3-opus-20240229"
+                
+                response = completion(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.7,
+                )
 
             name = response.choices[0].message.content.strip()
             logger.info("Generated playlist name: %s", name)
