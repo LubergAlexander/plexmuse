@@ -173,3 +173,45 @@ def test_model_defaults_to_configured_value(mock_completion, sample_artists, mon
     _, kwargs = mock_completion.call_args
     assert kwargs["model"] == "gpt-4"
     config.get_settings.cache_clear()
+
+
+def test_complete_retries_without_temperature_when_unsupported(mock_completion, sample_artists):
+    """Models that reject a custom temperature are retried with the model default."""
+    import litellm  # pylint: disable=import-outside-toplevel
+
+    error = litellm.BadRequestError(
+        "OpenAIException - Unsupported value: 'temperature' does not support 0.7 with this model.",
+        model="gpt-5.6-sol",
+        llm_provider="openai",
+    )
+    good_response = Mock()
+    good_response.choices = [Mock(message=Mock(content='{"artists": ["Artist1"]}'))]
+
+    calls = []
+
+    def side_effect(*args, **kwargs):  # pylint: disable=unused-argument
+        calls.append(kwargs)
+        if "temperature" in kwargs:
+            raise error
+        return good_response
+
+    mock_completion.side_effect = side_effect
+
+    service = LLMService()
+    result = service.get_artist_recommendations("Test prompt", sample_artists, model="gpt-5.6-sol")
+
+    assert result == ["Artist1"]
+    assert len(calls) == 2  # first attempt (with temperature) failed, retry succeeded
+    assert "temperature" not in calls[1]
+
+
+def test_complete_reraises_unrelated_bad_request(mock_completion, sample_artists):
+    """A BadRequestError unrelated to temperature is not swallowed."""
+    import litellm  # pylint: disable=import-outside-toplevel
+
+    error = litellm.BadRequestError("context_length_exceeded", model="gpt-4", llm_provider="openai")
+    mock_completion.side_effect = error
+
+    service = LLMService()
+    with pytest.raises(litellm.BadRequestError, match="context_length_exceeded"):
+        service.get_artist_recommendations("Test prompt", sample_artists, model="gpt-4")
