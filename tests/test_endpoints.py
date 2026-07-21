@@ -105,9 +105,21 @@ def test_root_endpoint(mock_env):
     assert response.status_code == 200
     assert response.headers["content-type"] == "text/html; charset=utf-8"
 
-    # Check if Plex configuration is injected
+    # Check if Plex and model configuration is injected
     content = response.text
     assert "window.plexBaseUrl" in content
     assert "window.plexToken" in content
     assert "http://plex:32400" in content
     assert "test-token" in content
+    assert "window.defaultModel" in content
+    assert "window.availableModels" in content
+
+
+def test_config_endpoint():
+    """Test the /config endpoint exposes model configuration"""
+    response = client.get("/config")
+    assert response.status_code == 200
+    data = response.json()
+    assert "default_model" in data
+    assert "available_models" in data
+    assert data["default_model"] in data["available_models"]

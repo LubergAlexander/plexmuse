@@ -2,16 +2,22 @@
 LLM Service
 
 This module provides the LLMService class for generating playlist recommendations
-using language models.
+using language models via LiteLLM. The model (and therefore provider) is
+configurable, and the required API key is validated before every call so that a
+missing or empty key produces a clear, actionable error instead of an opaque
+provider failure.
 """
 
 import json
 import logging
+import os
 import re
-from typing import List
+from typing import List, Optional
 
+import litellm
 from litellm import completion
 
+from app.config import get_settings
 from app.models import Artist
 
 logger = logging.getLogger(__name__)
@@ -31,7 +37,44 @@ class LLMService:
     A service class for generating playlist recommendations using language models.
     """
 
-    def get_artist_recommendations(self, prompt: str, artists: List[Artist], model: str = "gpt-4"):
+    def _resolve_model(self, model: Optional[str]) -> str:
+        """Fall back to the configured default model when none is provided."""
+        return model or get_settings().default_model
+
+    @staticmethod
+    def _validate_model_environment(model: str) -> None:
+        """
+        Ensure the API key required by ``model``'s provider is set and non-empty.
+
+        LiteLLM's ``validate_environment`` only checks that the key is *present*
+        in the environment, so an empty string (e.g. ``OPENAI_API_KEY=``) slips
+        through and fails later with an opaque error. We temporarily drop
+        empty/whitespace ``*_API_KEY`` variables so they are correctly reported
+        as missing, then raise a clear error naming what to set.
+        """
+        blanked = {k: v for k, v in os.environ.items() if k.endswith("_API_KEY") and not v.strip()}
+        for key in blanked:
+            del os.environ[key]
+        try:
+            result = litellm.validate_environment(model=model)
+        finally:
+            os.environ.update(blanked)
+
+        if not result.get("keys_in_environment", False):
+            missing = ", ".join(result.get("missing_keys", [])) or "the required API key"
+            raise ValueError(
+                f"Missing or empty API key for model '{model}'. "
+                f"Set the following environment variable(s): {missing}."
+            )
+
+    def _complete(self, model: Optional[str], messages: List[dict], temperature: float = 0.7):
+        """Validate credentials for the chosen model, then run the completion."""
+        resolved = self._resolve_model(model)
+        self._validate_model_environment(resolved)
+        logger.debug("Requesting completion from model: %s", resolved)
+        return completion(model=resolved, messages=messages, temperature=temperature)
+
+    def get_artist_recommendations(self, prompt: str, artists: List[Artist], model: str = None):
         """First step: Get relevant artists based on the prompt"""
         try:
             artist_context = "Available artists and their genres:\n" + "\n".join(
@@ -49,8 +92,8 @@ class LLMService:
             Do not add any explanations or other text - just the JSON object.
             Select 10-15 artists that match the mood/theme, only from the provided list."""
 
-            response = completion(
-                model=model,
+            response = self._complete(
+                model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {
@@ -83,8 +126,8 @@ class LLMService:
             raise
 
     def get_track_recommendations(
-        self, prompt: str, artist_tracks: dict, model: str = "gpt-4", min_tracks: int = 30, max_tracks: int = 50
-    ):  # pylint: disable=too-many-arguments,too-many-locals,too-many-positional-arguments
+        self, prompt: str, artist_tracks: dict, model: str = None, min_tracks: int = 30, max_tracks: int = 50
+    ):  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
         """Get track recommendations with simplified album context"""
         try:
             # Format just album information for context
@@ -94,7 +137,7 @@ class LLMService:
                 for album in albums:
                     albums_context += f"- {album['name']} ({album['year']})\n"
 
-            system_prompt = """You are a multilingual music curator creating a cohesive playlist.
+            system_prompt = f"""You are a multilingual music curator creating a cohesive playlist.
             Your responses must ALWAYS be in English and contain ONLY a valid JSON object.
 
             Based on your knowledge of these artists' albums and the playlist theme,
@@ -102,17 +145,19 @@ class LLMService:
             any tracks you know exist on these albums - you don't need to see the track list.
 
             You must respond with ONLY a JSON object in this exact format:
-            {
+            {{
                 "tracks": [
-                    {"artist": "artist name", "title": "track title"}
+                    {{"artist": "artist name", "title": "track title"}}
                 ]
-            }
+            }}
 
-            Select between {min_tracks} and {max_tracks} tracks total.
+            You MUST select between {min_tracks} and {max_tracks} tracks in total.
+            Ensure variety by selecting different tracks from different albums and artists.
+            Avoid repeating the same tracks or selecting too many tracks from the same album.
             Do not add any explanations or additional text."""
 
-            response = completion(
-                model=model,
+            response = self._complete(
+                model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {
@@ -122,7 +167,7 @@ class LLMService:
                         """,
                     },
                 ],
-                temperature=0.7,
+                temperature=0.8,
             )
 
             content = clean_llm_response(response.choices[0].message.content)
@@ -139,7 +184,7 @@ class LLMService:
             logger.error("Track recommendation failed: %s", str(e))
             raise
 
-    def generate_playlist_name(self, prompt: str, model: str = "gpt-4") -> str:
+    def generate_playlist_name(self, prompt: str, model: str = None) -> str:
         """Generate a playlist name based on the prompt"""
         try:
             system_prompt = """
@@ -147,8 +192,8 @@ class LLMService:
             Generate a SINGLE catchy and relevant playlist name based on the following prompt. Do not wrap in quotes.
             """
 
-            response = completion(
-                model=model,
+            response = self._complete(
+                model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
