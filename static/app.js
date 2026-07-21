@@ -11,6 +11,28 @@ document.addEventListener('DOMContentLoaded', () => {
     const errorText = document.getElementById('errorText');
     const dismissError = document.getElementById('dismissError');
 
+    // Model selection handling (options provided by server config)
+    const modelSelect = document.getElementById('modelSelect');
+    const modelSelectorWrapper = document.getElementById('modelSelectorWrapper');
+    const availableModels = Array.isArray(window.availableModels) ? window.availableModels : [];
+    const defaultModel = window.defaultModel || availableModels[0] || 'gpt-4';
+
+    if (modelSelect) {
+        availableModels.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model;
+            option.textContent = model;
+            if (model === defaultModel) {
+                option.selected = true;
+            }
+            modelSelect.appendChild(option);
+        });
+        // Only surface the selector when there's an actual choice to make.
+        if (availableModels.length > 1 && modelSelectorWrapper) {
+            modelSelectorWrapper.classList.remove('hidden');
+        }
+    }
+
     // Playlist length handling
     const lengthButtons = document.querySelectorAll('.playlist-length-btn');
     let selectedLength = 'medium'; // Default length
@@ -93,7 +115,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 },
                 body: JSON.stringify({
                     prompt,
-                    model: 'gpt-4',
+                    model: modelSelect ? modelSelect.value : defaultModel,
                     min_tracks: min,
                     max_tracks: max
                 }),

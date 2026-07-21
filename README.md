@@ -5,6 +5,8 @@ Welcome to **Plexmuse**! This project leverages the power of AI to generate pers
 ## Features ✨
 
 - **AI-Powered Recommendations**: Generate playlists using advanced language models like GPT-4 and Claude.
+- **Configurable Model & Provider**: Pick any [LiteLLM](https://docs.litellm.ai/docs/providers)-supported model (OpenAI, Anthropic, Gemini, …) via a single environment variable — no code changes.
+- **Multiple Music Libraries**: Works across every music library on your server, regardless of what they're named.
 - **Seamless Plex Integration**: Fetch and manage your music library directly from Plex.
 - **Customizable Playlists**: Tailor your playlists with specific prompts and models.
 
@@ -41,6 +43,34 @@ Welcome to **Plexmuse**! This project leverages the power of AI to generate pers
 
     For setting up OpenAI, Anthropic, or other LLM keys, follow the instructions in the LiteLLM documentation: [LiteLLM - Set Keys](https://docs.litellm.ai/docs/set_keys).
 
+### Configuration ⚙️
+
+The LLM model, provider, and API key are all configurable via environment variables, so you can switch providers without changing any code.
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `PLEX_BASE_URL` | Yes | URL of your Plex Media Server, e.g. `http://192.168.1.10:32400`. |
+| `PLEX_TOKEN` | Yes | Your Plex authentication token. |
+| `PLEXMUSE_MODEL` | No (default `gpt-4`) | Any [LiteLLM model string](https://docs.litellm.ai/docs/providers). Sets the default model and selects the provider. |
+| `PLEXMUSE_MODELS` | No | Comma-separated list of models to offer in the UI dropdown. The default model is always included. |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / … | Depends on model | The API key for whichever provider your model(s) use. |
+
+The API key required is determined by the chosen model. If it is missing or empty, the app fails fast with a clear error naming the environment variable to set, rather than making a doomed API call.
+
+Examples:
+
+```sh
+# Use Anthropic Claude
+PLEXMUSE_MODEL=anthropic/claude-3-5-sonnet-latest
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Offer a choice of models in the UI
+PLEXMUSE_MODEL=gpt-4o
+PLEXMUSE_MODELS=gpt-4o,gpt-3.5-turbo,anthropic/claude-3-5-sonnet-latest
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
 ### Running the Application
 
 You can run the application using the Makefile or directly with Docker.
@@ -51,10 +81,6 @@ You can run the application using the Makefile or directly with Docker.
     ```sh
     make run
     ```
-2. **Start**:
-    ```sh
-    make start
-    ```
 
 #### Using Docker
 
@@ -63,10 +89,23 @@ You can run the application using the Makefile or directly with Docker.
     docker compose build
     ```
 
-2. **Start the Docker container**:
+2. **Start the Docker container** (reads configuration from your `.env` file):
     ```sh
     docker compose up
     ```
+
+#### Using `docker run` with inline configuration
+
+You can also configure the model, provider, and API key directly at launch:
+
+```sh
+docker run -p 8000:8000 \
+  -e PLEX_BASE_URL=http://your-plex-server:32400 \
+  -e PLEX_TOKEN=your-plex-token \
+  -e PLEXMUSE_MODEL=anthropic/claude-3-5-sonnet-latest \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  ghcr.io/lubergalexander/plexmuse:latest
+```
 
 
 ## Usage 📖

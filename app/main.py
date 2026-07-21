@@ -2,6 +2,7 @@
 Plexmuse API with initialization
 """
 
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -13,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.config import get_settings
 from app.models import Artist, PlaylistRequest, PlaylistResponse, Track
 
 from .services.llm_service import LLMService
@@ -59,21 +61,31 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 async def root():
-    """Serve the index.html file with Plex configuration injected"""
+    """Serve the index.html file with Plex and model configuration injected"""
     plex_base_url = os.getenv("PLEX_BASE_URL")
     plex_token = os.getenv("PLEX_TOKEN")
+    settings = get_settings()
 
     with open("static/index.html", "r", encoding="utf-8") as f:
         html_content = f.read()
 
-    # Inject Plex configuration before closing body tag
+    # Inject Plex and model configuration before closing body tag
     script_tag = f"""<script>
         window.plexBaseUrl = "{plex_base_url}";
         window.plexToken = "{plex_token}";
+        window.defaultModel = {json.dumps(settings.default_model)};
+        window.availableModels = {json.dumps(settings.available_models)};
     </script>"""
     html_content = html_content.replace("</body>", f"{script_tag}</body>")
 
     return HTMLResponse(content=html_content)
+
+
+@app.get("/config")
+async def get_config():
+    """Expose the runtime model configuration to clients"""
+    settings = get_settings()
+    return {"default_model": settings.default_model, "available_models": settings.available_models}
 
 
 @app.get("/health")
@@ -92,10 +104,13 @@ async def get_artists():
 async def create_recommendations(request: PlaylistRequest):
     """Create playlist recommendations"""
     try:
+        # Resolve the model once so the request, prompts, and playlist metadata agree.
+        model = request.model or get_settings().default_model
+
         # Step 1: Get artist recommendations
         artists = plex_service.get_all_artists()
         recommended_artists = llm_service.get_artist_recommendations(
-            prompt=request.prompt, artists=artists, model=request.model
+            prompt=request.prompt, artists=artists, model=model
         )
 
         # Step 2: Get all recommended artists' albums in one call
@@ -105,18 +120,20 @@ async def create_recommendations(request: PlaylistRequest):
         track_recommendations = llm_service.get_track_recommendations(
             prompt=request.prompt,
             artist_tracks=artist_albums,
-            model=request.model,
+            model=model,
             min_tracks=request.min_tracks,
             max_tracks=request.max_tracks,
         )
 
         # Step 4: Generate playlist name
-        playlist_name = llm_service.generate_playlist_name(prompt=request.prompt, model=request.model)
+        playlist_name = llm_service.generate_playlist_name(prompt=request.prompt, model=model)
 
         # Step 5: Create the playlist
         playlist = plex_service.create_curated_playlist(
             name=playlist_name,
             track_recommendations=track_recommendations,
+            prompt=request.prompt,
+            model=model,
         )
         return PlaylistResponse(
             name=playlist.title,
