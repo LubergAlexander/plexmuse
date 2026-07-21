@@ -72,7 +72,20 @@ class LLMService:
         resolved = self._resolve_model(model)
         self._validate_model_environment(resolved)
         logger.debug("Requesting completion from model: %s", resolved)
-        return completion(model=resolved, messages=messages, temperature=temperature)
+        try:
+            return completion(model=resolved, messages=messages, temperature=temperature)
+        except litellm.BadRequestError as e:
+            # Some models (e.g. OpenAI's o1 / gpt-5 series) only accept the default
+            # temperature and reject any explicit value. Retry once letting the
+            # model use its own default rather than failing the whole request.
+            if "temperature" in str(e).lower():
+                logger.warning(
+                    "Model '%s' rejected temperature=%s; retrying with the model default.",
+                    resolved,
+                    temperature,
+                )
+                return completion(model=resolved, messages=messages)
+            raise
 
     def get_artist_recommendations(self, prompt: str, artists: List[Artist], model: str = None):
         """First step: Get relevant artists based on the prompt"""
